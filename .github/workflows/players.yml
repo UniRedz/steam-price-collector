@@ -1,0 +1,27 @@
+name: players
+
+on:
+  schedule:
+    - cron: "41 */6 * * *"   # ogni 6 ore
+  workflow_dispatch:
+
+concurrency:
+  group: players
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: node src/players.mjs

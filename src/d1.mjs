@@ -21,7 +21,8 @@ export async function query(sql, params = []) {
     if (r.ok && body.success) return body.result?.[0]?.results ?? [];
     const msg = JSON.stringify(body.errors || body).slice(0, 300);
     // Limite giornaliero D1 superato: inutile riprovare
-    if (/limit|exceeded/i.test(msg) && r.status !== 429) throw new Error(`D1 limite: ${msg}`);
+    if (/exceeded|daily limit/i.test(msg) && r.status !== 429) throw new Error(`D1 limite: ${msg}`);
+    if (r.status === 400) throw new Error(`D1 SQL ${msg}`); // errore nella query: inutile riprovare
     if (attempt === 4) throw new Error(`D1 errore ${r.status}: ${msg}`);
     await sleep(2000 * attempt);
   }
@@ -35,6 +36,19 @@ export async function insertMany(table, columns, rows, conflict = "OR REPLACE") 
     const part = rows.slice(i, i + chunk);
     const placeholders = part.map(() => `(${columns.map(() => "?").join(",")})`).join(",");
     await query(`INSERT ${conflict} INTO ${table} (${columns.join(",")}) VALUES ${placeholders}`, part.flat());
+  }
+}
+
+// Upsert multi-riga. `update` e' la clausola SET, es. "total = excluded.total, peak = MAX(peak, excluded.peak)"
+export async function upsertMany(table, columns, rows, conflictCols, update) {
+  const chunk = Math.max(1, Math.floor(100 / columns.length));
+  for (let i = 0; i < rows.length; i += chunk) {
+    const part = rows.slice(i, i + chunk);
+    const placeholders = part.map(() => `(${columns.map(() => "?").join(",")})`).join(",");
+    await query(
+      `INSERT INTO ${table} (${columns.join(",")}) VALUES ${placeholders}
+       ON CONFLICT(${conflictCols.join(",")}) DO UPDATE SET ${update}`,
+      part.flat());
   }
 }
 

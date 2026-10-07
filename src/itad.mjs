@@ -2,35 +2,12 @@
 // 1) mappa appid Steam -> id ITAD
 // 2) verifica per ogni regione se ITAD riporta ESATTAMENTE i prezzi Steam reali
 // 3) solo per le regioni verificate salva il minimo storico Steam (storeLow, shop 61)
-import { assertEnv, query, insertMany, sleep } from "./d1.mjs";
+import { assertEnv, query, insertMany } from "./d1.mjs";
+import { itad, chunks, KEY } from "./itad-client.mjs";
 import { REGIONS } from "./regions.mjs";
 
-const KEY = process.env.ITAD_API_KEY;
-const API = "https://api.isthereanydeal.com";
-const DELAY_MS = Number(process.env.ITAD_DELAY_MS || 3200); // 100 req / 5 min senza email verificata
 const TRUST_THRESHOLD = 0.98;
 const TRUST_SAMPLE = 200;
-
-async function itad(path, body) {
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    const r = await fetch(`${API}${path}${path.includes("?") ? "&" : "?"}key=${KEY}`, {
-      method: body ? "POST" : "GET",
-      headers: { "Content-Type": "application/json", "User-Agent": "steam-price-collector/1.0" },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    await sleep(DELAY_MS);
-    if (r.status === 429) {
-      const wait = Number(r.headers.get("retry-after") || 60) * 1000;
-      console.warn(`ITAD 429, attendo ${wait / 1000}s`);
-      await sleep(wait);
-      continue;
-    }
-    if (r.ok) return r.json();
-    if (attempt === 5) throw new Error(`ITAD ${r.status} su ${path}`);
-  }
-}
-
-const chunks = (arr, n) => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
 
 async function mapIds() {
   const missing = (await query("SELECT appid FROM tracked_game WHERE active = 1 AND itad_id IS NULL")).map((r) => r.appid);
@@ -96,6 +73,21 @@ async function storeLows(games, trusted, now) {
   await query(`DELETE FROM external_low WHERE source = 'itad' AND region NOT IN (${placeholders})`, regs);
 }
 
+// Abbonamenti (Game Pass, ecc.): disponibilita' in US, indicativa per le altre regioni
+async function subscriptions(games, now) {
+  const rows = [];
+  for (const part of chunks(games, 200)) {
+    const res = await itad("/games/subs/v1?country=US", part.map((g) => g.itad_id));
+    for (const item of res || []) {
+      const g = part.find((x) => x.itad_id === item.id);
+      for (const s of item.subs || []) if (g) rows.push([g.appid, "US", s.name, s.leaving, now]);
+    }
+  }
+  await query("DELETE FROM subscription WHERE country = 'US'");
+  await insertMany("subscription", ["appid", "country", "name", "leaving", "fetched_at"], rows);
+  console.log(`Abbonamenti: ${rows.length} righe`);
+}
+
 async function main() {
   assertEnv();
   if (!KEY) throw new Error("ITAD_API_KEY mancante");
@@ -104,6 +96,7 @@ async function main() {
   const games = await query("SELECT appid, itad_id FROM tracked_game WHERE active = 1 AND itad_id IS NOT NULL ORDER BY appid");
   const trusted = await checkTrust(games, now);
   await storeLows(games, trusted, now);
+  await subscriptions(games, now);
   await query("INSERT INTO run_log (job, started_at, finished_at, stats_json, ok) VALUES ('itad', ?, ?, ?, 1)",
     [now, new Date().toISOString(), JSON.stringify({ games: games.length, trusted: trusted.map((t) => t.cc) })]);
 }

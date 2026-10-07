@@ -2,46 +2,89 @@ name: collect
 
 on:
   schedule:
-    - cron: "17 3 * * *"   # ogni giorno 03:17 UTC
+    - cron: "17 3 * * *"   # ogni giorno 03:17 UTC (05:17 in Italia d'estate)
   workflow_dispatch:
     inputs:
       job:
         description: "Job da eseguire"
         type: choice
-        options: [verify, collect, itad, both]
-        default: collect
+        options: [verify, prices, reviews, weekly, itad-history, all]
+        default: all
 
 concurrency:
-  group: collector
+  group: collector-${{ github.event_name }}
   cancel-in-progress: false
 
 permissions:
   contents: read
 
+env:
+  CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+  CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+  CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+  ITAD_API_KEY: ${{ secrets.ITAD_API_KEY }}
+
 jobs:
-  run:
+  verify:
+    if: github.event_name == 'workflow_dispatch' && inputs.job == 'verify'
     runs-on: ubuntu-latest
-    timeout-minutes: 300
-    env:
-      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-      CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
-      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-      ITAD_API_KEY: ${{ secrets.ITAD_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Verifica secret
-        if: inputs.job == 'verify'
-        run: node src/verify.mjs
-      - name: Prezzi Steam (tutte le regioni)
-        if: github.event_name == 'schedule' || inputs.job == 'collect' || inputs.job == 'both'
-        run: node src/collect.mjs
-      - name: ITAD (il lunedi, o manuale)
-        if: github.event_name == 'schedule' || inputs.job == 'itad' || inputs.job == 'both'
+        with: { node-version: 22 }
+      - run: node src/verify.mjs
+
+  # Prezzi in 40 regioni. Job separato = runner separato = IP separato dai job sulle recensioni
+  prices:
+    if: github.event_name == 'schedule' || inputs.job == 'prices' || inputs.job == 'all'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: node src/migrate.mjs
+      - run: node src/collect.mjs
+      - name: Metadati dei giochi nuovi
+        run: node src/meta.mjs --missing
+
+  reviews:
+    if: github.event_name == 'schedule' || inputs.job == 'reviews' || inputs.job == 'all'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Recensioni (versione completa il lunedi' o con job=all)
         run: |
-          if [ "${{ github.event_name }}" = "schedule" ] && [ "$(date -u +%u)" != "1" ]; then
-            echo "Non e' lunedi, salto ITAD"; exit 0
-          fi
-          node src/itad.mjs
+          if [ "$(date -u +%u)" = "1" ] || [ "${{ inputs.job }}" = "all" ]; then node src/reviews.mjs --weekly; else node src/reviews.mjs; fi
+
+  weekly:
+    if: github.event_name == 'schedule' || inputs.job == 'weekly' || inputs.job == 'all'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Salta se non e' lunedi'
+        id: day
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$(date -u +%u)" != "1" ]; then echo "run=0" >> "$GITHUB_OUTPUT"; else echo "run=1" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.day.outputs.run == '1'
+        run: node src/meta.mjs
+      - if: steps.day.outputs.run == '1'
+        run: node src/itad.mjs
+
+  # Storico completo ITAD per i giochi che non ce l'hanno (una volta per gioco)
+  itad-history:
+    needs: [weekly]
+    if: always() && (github.event_name == 'schedule' || inputs.job == 'itad-history' || inputs.job == 'all')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: node src/itad-history.mjs
