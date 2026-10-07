@@ -15,11 +15,15 @@ async function summary(appid, extra = "") {
   return d?.success === 1 ? d.query_summary : null;
 }
 
-async function recent30(appid) {
+// Istogramma: ultimi 30 giorni giorno per giorno + periodi fuori tema (review bomb) esclusi da Steam
+async function histogram(appid) {
   const d = await steamJson(`${STORE}/appreviewhistogram/${appid}?l=english&review_score_preference=0`);
   const rec = d?.results?.recent;
-  if (!Array.isArray(rec)) return [];
-  return rec.map((x) => [new Date(x.date * 1000).toISOString().slice(0, 10), x.recommendations_up, x.recommendations_down]);
+  const iso = (t) => new Date(t * 1000).toISOString();
+  return {
+    recent: Array.isArray(rec) ? rec.map((x) => [iso(x.date).slice(0, 10), x.recommendations_up, x.recommendations_down]) : [],
+    offtopic: (d?.past_events || []).filter((e) => e.type === 0).map((e) => [iso(e.start_date), iso(e.end_date)]),
+  };
 }
 
 async function negatives(appid) {
@@ -47,10 +51,10 @@ async function main() {
   let ok = 0, flagged = 0, i = 0;
   const flush = async () => {
     if (stats.length) {
-      const cols = ["appid", "total", "positive", "score_desc", "recent_json", "updated_at"];
+      const cols = ["appid", "total", "positive", "score_desc", "recent_json", "offtopic_events_json", "updated_at"];
       const rows = stats.map((s) => cols.map((c) => s[c]));
       await upsertMany("review_stats", cols, rows, ["appid"],
-        "total = excluded.total, positive = excluded.positive, score_desc = excluded.score_desc, recent_json = excluded.recent_json, updated_at = excluded.updated_at");
+        cols.slice(1).map((c) => `${c} = excluded.${c}`).join(", "));
       const off = stats.filter((s) => s.total_incl_offtopic != null);
       for (const s of off) await query("UPDATE review_stats SET total_incl_offtopic = ? WHERE appid = ?", [s.total_incl_offtopic, s.appid]);
       stats.length = 0;
@@ -67,9 +71,10 @@ async function main() {
     const s = await summary(appid);
     if (!s || !s.total_reviews) continue;
     const now = new Date().toISOString();
+    const h = await histogram(appid);
     const row = {
       appid, total: s.total_reviews, positive: s.total_positive, score_desc: s.review_score_desc,
-      recent_json: JSON.stringify(await recent30(appid)), updated_at: now, total_incl_offtopic: null,
+      recent_json: JSON.stringify(h.recent), offtopic_events_json: JSON.stringify(h.offtopic), updated_at: now, total_incl_offtopic: null,
     };
     if (WEEKLY) {
       const all = await summary(appid, "&filter_offtopic_activity=0");

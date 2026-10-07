@@ -11,9 +11,10 @@ async function main() {
   assertEnv();
   if (!KEY) throw new Error("ITAD_API_KEY mancante");
   const started = new Date().toISOString();
+  const only = (process.env.APPIDS || "").split(",").map(Number).filter(Boolean);
   const games = await query(
     `SELECT appid, itad_id FROM tracked_game
-     WHERE active = 1 AND itad_id IS NOT NULL
+     WHERE active = 1 AND itad_id IS NOT NULL ${only.length ? `AND appid IN (${only.join(",")})` : ""}
        AND appid NOT IN (SELECT appid FROM itad_history WHERE region = ?)
      ORDER BY (origin = 'wishlist') DESC, appid LIMIT ?`, [REGION, MAX]);
   console.log(`Storico ITAD da scaricare: ${games.length} giochi`);

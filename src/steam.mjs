@@ -35,6 +35,9 @@ export async function steamJson(url, { retries = 5 } = {}) {
 
 // Giochi attivi, wishlist prima (sono quelli che gli utenti guardano)
 export async function activeGames(query, extraWhere = "") {
+  // APPIDS=1,2,3 limita il run a giochi specifici (run manuali)
+  const only = (process.env.APPIDS || "").split(",").map(Number).filter(Boolean);
+  if (only.length) extraWhere += ` AND appid IN (${only.join(",")})`;
   return query(
     `SELECT appid, itad_id, origin FROM tracked_game WHERE active = 1 ${extraWhere}
      ORDER BY (origin = 'wishlist') DESC, appid`);
