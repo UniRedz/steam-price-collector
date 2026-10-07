@@ -1,6 +1,6 @@
 {
   "name": "steam-price-collector",
-  "version": "1.0.0",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "Snapshot giornaliero dei prezzi Steam in tutte le regioni di prezzo",
