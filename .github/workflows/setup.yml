@@ -1,0 +1,49 @@
+name: setup
+
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: "Cosa eseguire"
+        type: choice
+        options: [migrate, seed-top, import-autumn-2026, wishlist, all-initial]
+        default: all-initial
+      steamid:
+        description: "SteamID64 (solo per wishlist)"
+        required: false
+      top_n:
+        description: "Quanti giochi top da ITAD"
+        default: "1000"
+
+concurrency:
+  group: collector
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      ITAD_API_KEY: ${{ secrets.ITAD_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - if: inputs.step == 'migrate' || inputs.step == 'all-initial'
+        run: node src/migrate.mjs
+      - if: inputs.step == 'import-autumn-2026' || inputs.step == 'all-initial'
+        run: node src/seed.mjs import data/autumn_sale_2026-10-07.json.gz
+      - if: inputs.step == 'seed-top' || inputs.step == 'all-initial'
+        env:
+          TOP_N: ${{ inputs.top_n }}
+        run: node src/seed.mjs top "$TOP_N"
+      - if: inputs.step == 'wishlist' && inputs.steamid != ''
+        env:
+          STEAM_ID: ${{ inputs.steamid }}
+        run: node src/seed.mjs wishlist "$STEAM_ID"

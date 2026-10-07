@@ -1,0 +1,16 @@
+{
+  "name": "steam-price-collector",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Snapshot giornaliero dei prezzi Steam in tutte le regioni di prezzo",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "migrate": "node src/migrate.mjs",
+    "collect": "node src/collect.mjs",
+    "itad": "node src/itad.mjs",
+    "seed:top": "node src/seed.mjs top",
+    "seed:wishlist": "node src/seed.mjs wishlist",
+    "import": "node src/seed.mjs import"
+  }
+}
