@@ -1,9 +1,9 @@
 # steam-price-collector
 
-Snapshot giornaliero dei prezzi Steam in 40 regioni di prezzo, salvato su Cloudflare D1. Zero dipendenze, zero costi.
+Snapshot giornaliero dei prezzi Steam in 41 regioni di prezzo, salvato su Cloudflare D1. Zero dipendenze, zero costi.
 
 Workflow `collect` (ogni giorno alle 03:17 UTC), job in parallelo su runner separati:
-- **prices**: prezzi Steam in 40 regioni per tutti i giochi tracciati; una riga per gioco solo se un prezzo è cambiato. Poi i metadati dei giochi nuovi.
+- **prices**: prezzi Steam in 41 regioni per tutti i giochi tracciati; una riga per gioco solo se un prezzo è cambiato. Poi i metadati dei giochi nuovi.
 - **reviews**: totali recensioni (tutte le lingue), ultimi 30 giorni giorno per giorno e periodi di review bomb esclusi da Steam. Il lunedì anche i motivi delle recensioni negative (classificatore a parole chiave, zero IA) e la negativa più votata.
 - **weekly** (lunedì): metadati e annunci degli sviluppatori; verifica ITAD per regione, minimi storici solo dove ITAD coincide al centesimo con Steam, abbonamenti (Game Pass ecc.).
 - **itad-history**: storico completo dei prezzi Steam USA da ITAD, una volta per gioco.
