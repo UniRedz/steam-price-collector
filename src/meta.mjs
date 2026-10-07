@@ -3,6 +3,7 @@
 //   node src/meta.mjs --missing  -> solo quelli senza metadati
 import { assertEnv, query, upsertMany } from "./d1.mjs";
 import { steamJson, activeGames } from "./steam.mjs";
+import { itad, KEY as ITAD_KEY } from "./itad-client.mjs";
 
 const LIMIT = Number(process.env.LIMIT || 0);
 const MISSING = process.argv.includes("--missing");
@@ -63,6 +64,7 @@ async function main() {
     "genres_json", "developers_json", "publishers_json", "fullgame_appid", "languages", "updated_at"];
   const newsCols = ["appid", "last_post_at", "last_patch_at", "posts_seen", "updated_at"];
   let metaRows = [], newsRows = [], i = 0;
+  const gone = []; // giochi senza pagina sullo store
   const flush = async () => {
     if (metaRows.length) await upsertMany("game_meta", metaCols, metaRows.splice(0), ["appid"], metaCols.slice(1).map((c) => `${c} = excluded.${c}`).join(", "));
     if (newsRows.length) await upsertMany("dev_news", newsCols, newsRows.splice(0), ["appid"], newsCols.slice(1).map((c) => `${c} = excluded.${c}`).join(", "));
@@ -72,15 +74,34 @@ async function main() {
     const now = new Date().toISOString();
     const m = await details(appid);
     if (m) metaRows.push(metaCols.map((c) => (c === "appid" ? appid : c === "updated_at" ? now : m[c])));
+    else gone.push(appid);
     const n = await devNews(appid);
     if (n) newsRows.push([appid, n.last_post_at, n.last_patch_at, n.posts_seen, now]);
     if (metaRows.length >= 20) await flush();
     if (i % 100 === 0) console.log(`  ${i}/${games.length}`);
   }
   await flush();
+  const named = await namesFromItad(gone);
   await query("INSERT INTO run_log (job, started_at, finished_at, stats_json, ok) VALUES ('meta', ?, ?, ?, 1)",
-    [started, new Date().toISOString(), JSON.stringify({ games: games.length })]);
+    [started, new Date().toISOString(), JSON.stringify({ games: games.length, gone: gone.length, named })]);
   console.log("ok");
+}
+
+// Giochi rimossi da Steam: lo store non da' piu' il nome, IsThereAnyDeal si'. Una volta per gioco.
+async function namesFromItad(appids) {
+  if (!ITAD_KEY || !appids.length) return 0;
+  const missing = await query(
+    "SELECT appid FROM tracked_game WHERE name IS NULL AND appid IN (SELECT value FROM json_each(?))", [JSON.stringify(appids)]);
+  let n = 0;
+  for (const { appid } of missing) {
+    const d = await itad(`/games/lookup/v1?appid=${appid}`).catch(() => null);
+    const title = d?.found ? d.game?.title : null;
+    if (!title) continue;
+    await query("UPDATE tracked_game SET name = ? WHERE appid = ?", [String(title).slice(0, 300), appid]);
+    n++;
+  }
+  console.log(`Nomi da ITAD: ${n}/${missing.length}`);
+  return n;
 }
 
 if (process.argv[1]?.endsWith("meta.mjs")) main().catch((e) => { console.error(e); process.exit(1); });
