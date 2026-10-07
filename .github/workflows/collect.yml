@@ -8,7 +8,7 @@ on:
       job:
         description: "Job da eseguire"
         type: choice
-        options: [collect, itad, both]
+        options: [verify, collect, itad, both]
         default: collect
 
 concurrency:
@@ -32,6 +32,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Verifica secret
+        if: inputs.job == 'verify'
+        run: node src/verify.mjs
       - name: Prezzi Steam (tutte le regioni)
         if: github.event_name == 'schedule' || inputs.job == 'collect' || inputs.job == 'both'
         run: node src/collect.mjs
