@@ -1,22 +1,30 @@
 // Storico completo dei cambi prezzo su Steam (USA) da ITAD, per i giochi che non ce l'hanno ancora.
 // Serve una volta per gioco: da li' in avanti lo storico USA lo raccoglie il collector ogni giorno.
+// Eccezione: se ITAD ha risposto con uno storico vuoto per un gioco gia' uscito e a pagamento, si riprova una volta
+// a settimana. Senza storico quel gioco resta "Dati limitati" sul sito, e ITAD puo' averlo indicizzato nel frattempo.
 // HISTORY_MAX limita i giochi per run (rate limit ITAD: 100 richieste / 5 minuti senza email verificata).
 import { assertEnv, query, upsertMany } from "./d1.mjs";
 import { itad, KEY } from "./itad-client.mjs";
 
 const MAX = Number(process.env.HISTORY_MAX || 1500);
 const REGION = "us";
+const RETRY_EMPTY_DAYS = 7;
 
 async function main() {
   assertEnv();
   if (!KEY) throw new Error("ITAD_API_KEY mancante");
   const started = new Date().toISOString();
   const only = (process.env.APPIDS || "").split(",").map(Number).filter(Boolean);
+  const retryBefore = new Date(Date.now() - RETRY_EMPTY_DAYS * 86_400_000).toISOString();
   const games = await query(
     `SELECT appid, itad_id FROM tracked_game
      WHERE active = 1 AND itad_id IS NOT NULL ${only.length ? `AND appid IN (${only.join(",")})` : ""}
-       AND appid NOT IN (SELECT appid FROM itad_history WHERE region = ?)
-     ORDER BY (origin = 'wishlist') DESC, appid LIMIT ?`, [REGION, MAX]);
+       AND (appid NOT IN (SELECT appid FROM itad_history WHERE region = ?)
+         OR appid IN (
+           SELECT h.appid FROM itad_history h JOIN game_meta m ON m.appid = h.appid
+           WHERE h.region = ? AND h.events_json = '[]' AND h.fetched_at < ?
+             AND m.is_free = 0 AND m.coming_soon = 0 AND m.type IN ('game', 'dlc')))
+     ORDER BY (origin = 'wishlist') DESC, appid LIMIT ?`, [REGION, REGION, retryBefore, MAX]);
   console.log(`Storico ITAD da scaricare: ${games.length} giochi`);
   const cols = ["appid", "region", "currency", "events_json", "fetched_at"];
   const rows = [];

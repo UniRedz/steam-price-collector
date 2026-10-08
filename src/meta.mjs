@@ -82,9 +82,20 @@ async function main() {
   }
   await flush();
   const named = await namesFromItad(gone);
+  const bases = await trackBaseGames();
   await query("INSERT INTO run_log (job, started_at, finished_at, stats_json, ok) VALUES ('meta', ?, ?, ?, 1)",
-    [started, new Date().toISOString(), JSON.stringify({ games: games.length, gone: gone.length, named })]);
+    [started, new Date().toISOString(), JSON.stringify({ games: games.length, gone: gone.length, named, bases })]);
   console.log("ok");
+}
+
+// Giochi base dei DLC tracciati: li seguiamo anche loro (origin 'base'). Senza, il sito sa che a un utente manca
+// il gioco base ma non ne conosce recensioni e prezzo. Entrano qui; metadati e prezzi arrivano dal run successivo.
+async function trackBaseGames() {
+  const missing = "fullgame_appid IS NOT NULL AND fullgame_appid NOT IN (SELECT appid FROM tracked_game)";
+  const [{ n }] = await query(`SELECT COUNT(DISTINCT fullgame_appid) AS n FROM game_meta WHERE ${missing}`);
+  if (n) await query(`INSERT OR IGNORE INTO tracked_game (appid, origin) SELECT DISTINCT fullgame_appid, 'base' FROM game_meta WHERE ${missing}`);
+  console.log(`Giochi base di DLC aggiunti: ${n}`);
+  return n;
 }
 
 // Giochi rimossi da Steam: lo store non da' piu' il nome, IsThereAnyDeal si'. Una volta per gioco.

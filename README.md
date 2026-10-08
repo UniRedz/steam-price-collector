@@ -6,7 +6,9 @@ Workflow `collect` (ogni giorno alle 03:17 UTC), job in parallelo su runner sepa
 - **prices**: prezzi Steam in 41 regioni per tutti i giochi tracciati; una riga per gioco solo se un prezzo è cambiato. Poi i metadati dei giochi nuovi.
 - **reviews**: totali recensioni (tutte le lingue), ultimi 30 giorni giorno per giorno e periodi di review bomb esclusi da Steam. Il lunedì anche i motivi delle recensioni negative (classificatore a parole chiave, zero IA) e la negativa più votata.
 - **weekly** (lunedì): metadati e annunci degli sviluppatori; verifica ITAD per regione, minimi storici solo dove ITAD coincide al centesimo con Steam, abbonamenti (Game Pass ecc.).
-- **itad-history**: storico completo dei prezzi Steam USA da ITAD, una volta per gioco.
+- **itad-history**: storico completo dei prezzi Steam USA da ITAD, una volta per gioco. Se ITAD risponde con uno storico vuoto per un gioco già uscito e a pagamento, si riprova una volta a settimana.
+
+I giochi base dei DLC tracciati vengono aggiunti da soli a `tracked_game` (origin `base`) dal job dei metadati.
 
 Workflow `players` (ogni 6 ore): giocatori online, si salva il massimo del giorno.
 
@@ -24,7 +26,7 @@ Run manuali: `APPIDS=1,2,3` limita qualsiasi job a giochi specifici.
 
 | Tabella | Contenuto |
 |---|---|
-| `tracked_game` | Giochi tracciati (top, wishlist, manual) |
+| `tracked_game` | Giochi tracciati (top, wishlist, manual, base = gioco base di un DLC tracciato) |
 | `price_snapshot` | Una riga per gioco per giorno di cambio: `{"ar":["USD",initial,final,cut],...}` in centesimi |
 | `price_latest` | Ultimo stato per gioco |
 | `external_low` | Minimo storico Steam da ITAD, solo per regioni verificate |
