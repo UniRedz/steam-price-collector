@@ -20,12 +20,13 @@ export const HISTORY_SINCE = {
   au: "2018-11-22T00:00:00Z",
 };
 
-// Gli eventi [quando, prezzo pieno, prezzo, sconto] da tenere per una regione: quelli dal giorno in cui i prezzi sono
-// veri. Regione fuori dalla tabella: nessuno.
-export function realEvents(region, events) {
+// Un prezzo ITAD di una regione, con la sua data, e' un prezzo Steam vero? Si' se la regione e' stata controllata e la
+// data non cade nel periodo convertito. Senza data, dove un periodo convertito c'e', non lo si puo' dire: no.
+export function isReal(region, timestamp) {
   const since = HISTORY_SINCE[region];
-  if (since === undefined) return [];
-  if (since === null) return events;
-  const from = Date.parse(since);
-  return events.filter((e) => Date.parse(e[0]) >= from);
+  if (since === undefined) return false;
+  return since === null || Date.parse(timestamp) >= Date.parse(since);
 }
+
+// Gli eventi [quando, prezzo pieno, prezzo, sconto] da tenere per una regione: solo quelli veri
+export const realEvents = (region, events) => events.filter((e) => isReal(region, e[0]));

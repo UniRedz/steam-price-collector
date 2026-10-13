@@ -4,7 +4,7 @@
 // 3) solo per le regioni verificate salva il minimo storico Steam (storeLow, shop 61)
 import { assertEnv, query, insertMany } from "./d1.mjs";
 import { itad, chunks, KEY } from "./itad-client.mjs";
-import { REGIONS } from "./regions.mjs";
+import { HISTORY_SINCE, REGIONS, isReal } from "./regions.mjs";
 
 const TRUST_THRESHOLD = 0.98;
 const TRUST_SAMPLE = 200;
@@ -51,8 +51,17 @@ async function checkTrust(games, now) {
   return trusted;
 }
 
+// Solo prezzi veri: ITAD segue alcune regioni da prima che Steam vendesse nella loro valuta e per quel periodo riporta
+// dollari convertiti (vedi HISTORY_SINCE in regions.mjs). Un minimo storico che cade li' non si salva, e quelli salvati
+// in passato si tolgono. Una regione non ancora controllata non riceve minimi.
 async function storeLows(games, trusted, now) {
+  const stored = [];
   for (const { cc, currency } of trusted) {
+    if (!(cc in HISTORY_SINCE)) {
+      console.warn(`${cc}: verificata sui prezzi di oggi ma non ancora controllata per i prezzi convertiti, nessun minimo salvato`);
+      continue;
+    }
+    stored.push(cc);
     const rows = [];
     for (const part of chunks(games, 200)) {
       const res = await itad(`/games/storelow/v2?country=${cc.toUpperCase()}&shops=61`, part.map((g) => g.itad_id));
@@ -60,17 +69,22 @@ async function storeLows(games, trusted, now) {
         const low = item.lows?.find((l) => l.shop?.id === 61);
         const g = part.find((x) => x.itad_id === item.id);
         // Un minimo in una valuta diversa da quella attuale della regione non e' confrontabile
-        if (low && g && low.price.currency === currency) rows.push([g.appid, cc, "itad", low.price.currency, low.price.amountInt, low.cut, low.timestamp, now]);
+        if (low && g && low.price.currency === currency && isReal(cc, low.timestamp)) {
+          rows.push([g.appid, cc, "itad", low.price.currency, low.price.amountInt, low.cut, low.timestamp, now]);
+        }
       }
     }
     await insertMany("external_low",
       ["appid", "region", "source", "currency", "low_int", "low_cut", "low_at", "fetched_at"], rows);
+    // Minimi salvati in passato che cadono nel periodo convertito (datetime: le date ITAD hanno il fuso, "+02:00")
+    if (HISTORY_SINCE[cc]) {
+      await query("DELETE FROM external_low WHERE source = 'itad' AND region = ? AND datetime(low_at) < datetime(?)", [cc, HISTORY_SINCE[cc]]);
+    }
     console.log(`${cc}: ${rows.length} minimi storici salvati`);
   }
-  // Regioni non (piu') affidabili: i loro minimi esterni non devono restare in giro
-  const regs = trusted.map((t) => t.cc);
-  const placeholders = regs.map(() => "?").join(",") || "''";
-  await query(`DELETE FROM external_low WHERE source = 'itad' AND region NOT IN (${placeholders})`, regs);
+  // Regioni non (piu') affidabili o non controllate: i loro minimi esterni non devono restare in giro
+  const placeholders = stored.map(() => "?").join(",") || "''";
+  await query(`DELETE FROM external_low WHERE source = 'itad' AND region NOT IN (${placeholders})`, stored);
 }
 
 // Abbonamenti (Game Pass, ecc.): disponibilita' in US, indicativa per le altre regioni
