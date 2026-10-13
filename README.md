@@ -6,7 +6,7 @@ Workflow `collect` (ogni giorno alle 03:17 UTC), job in parallelo su runner sepa
 - **prices**: prezzi Steam in 41 regioni per tutti i giochi tracciati; una riga per gioco solo se un prezzo è cambiato. Poi i metadati dei giochi nuovi.
 - **reviews**: totali recensioni (tutte le lingue), ultimi 30 giorni giorno per giorno e periodi di review bomb esclusi da Steam. Il lunedì anche i motivi delle recensioni negative (classificatore a parole chiave, zero IA) e la negativa più votata.
 - **weekly** (lunedì): metadati e annunci degli sviluppatori; verifica ITAD per regione, minimi storici solo dove ITAD coincide al centesimo con Steam, abbonamenti (Game Pass ecc.).
-- **itad-history**: storico completo dei prezzi Steam da ITAD, una volta per gioco e per regione: USA (riferimento) e poi le regioni in cui ITAD è verificato (`region_trust`), a partire dall’area euro. Lo storico scaricato resta nel database; da lì in avanti lo aggiorna il job dei prezzi. Al massimo `HISTORY_MAX` richieste per run (1500), quindi il primo riempimento delle regioni richiede più notti. Se ITAD risponde con uno storico vuoto per un gioco già uscito e a pagamento, si riprova una volta a settimana.
+- **itad-history**: storico completo dei prezzi Steam da ITAD, una volta per gioco e per regione: USA (riferimento) e poi le regioni in cui ITAD è verificato (`region_trust`), a partire dall’area euro. Lo storico scaricato resta nel database; da lì in avanti lo aggiorna il job dei prezzi. Al massimo `HISTORY_MAX` richieste per run (1500), quindi il primo riempimento delle regioni richiede più notti. Se ITAD risponde con uno storico vuoto per un gioco già uscito e a pagamento, si riprova una volta a settimana. Entrano solo prezzi veri: dove ITAD segue una regione da prima che Steam vendesse nella sua valuta riporta dollari convertiti, e quei periodi non vengono salvati (Australia: tutto ciò che precede il 22 novembre 2018). Una regione nuova si scarica solo dopo essere stata controllata e aggiunta a `HISTORY_SINCE` in `src/regions.mjs`.
 
 I giochi base dei DLC tracciati vengono aggiunti da soli a `tracked_game` (origin `base`) dal job dei metadati.
 
@@ -36,7 +36,7 @@ Run manuali: `APPIDS=1,2,3` limita qualsiasi job a giochi specifici.
 | `review_negatives` | Motivi delle negative e negativa più votata (giochi sotto il 75%) |
 | `player_daily` | Picco giornaliero di giocatori online |
 | `dev_news` | Ultimo annuncio e ultima patch degli sviluppatori |
-| `itad_history` | Storico completo prezzi Steam USA |
+| `itad_history` | Storico completo dei prezzi Steam: USA e regioni verificate |
 | `subscription` | Abbonamenti che includono il gioco |
 | `game_credit` | Crediti verificabili (solo aziende, fonte obbligatoria) |
 | `context_note` | Note di contesto: bozza → pubblicata (min. 2 fonti) |

@@ -9,6 +9,7 @@
 // senza email verificata). HISTORY_REGIONS (es. "us,it") limita le regioni di una run manuale.
 import { assertEnv, query, upsertMany } from "./d1.mjs";
 import { itad, KEY } from "./itad-client.mjs";
+import { HISTORY_SINCE, realEvents } from "./regions.mjs";
 
 const MAX = Number(process.env.HISTORY_MAX || 1500);
 const REFERENCE = "us";
@@ -17,9 +18,13 @@ const RETRY_EMPTY_DAYS = 7;
 const COLS = ["appid", "region", "currency", "events_json", "fetched_at"];
 const ON_CONFLICT = "currency = excluded.currency, events_json = excluded.events_json, fetched_at = excluded.fetched_at";
 
-// USA sempre; le altre solo se ITAD e' verificato per quella regione
+// USA sempre; le altre solo se ITAD e' verificato per quella regione e se sappiamo da quando i suoi prezzi sono veri
+// (HISTORY_SINCE in regions.mjs: ITAD riporta prezzi convertiti per i periodi in cui Steam non vendeva in quella valuta)
 async function regionsToFill() {
-  const trusted = (await query("SELECT region FROM region_trust WHERE source = 'itad' AND trusted = 1")).map((r) => r.region);
+  const verified = (await query("SELECT region FROM region_trust WHERE source = 'itad' AND trusted = 1")).map((r) => r.region);
+  const unchecked = verified.filter((r) => !(r in HISTORY_SINCE));
+  if (unchecked.length) console.warn(`Regioni verificate da ITAD ma non ancora controllate per i prezzi convertiti, non scaricate: ${unchecked.join(", ")}`);
+  const trusted = verified.filter((r) => r in HISTORY_SINCE);
   const all = [REFERENCE, ...FIRST.filter((r) => trusted.includes(r)), ...trusted.filter((r) => r !== REFERENCE && !FIRST.includes(r)).sort()];
   const only = (process.env.HISTORY_REGIONS || "").split(",").map((r) => r.trim().toLowerCase()).filter(Boolean);
   return only.length ? all.filter((r) => only.includes(r)) : all;
@@ -42,10 +47,11 @@ async function download(region, max, only, retryBefore) {
     i++;
     const h = await itad(`/games/history/v2?id=${g.itad_id}&country=${region.toUpperCase()}&shops=61&since=2000-01-01T00:00:00Z`);
     if (!Array.isArray(h)) continue;
-    const ev = h
+    // Solo prezzi veri: via i periodi in cui ITAD riporta dollari convertiti (vedi HISTORY_SINCE)
+    const ev = realEvents(region, h
       .filter((e) => e.shop?.id === 61 && e.deal?.price)
       .map((e) => [e.timestamp, e.deal.regular.amountInt, e.deal.price.amountInt, e.deal.cut])
-      .sort((a, b) => (a[0] < b[0] ? -1 : 1));
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1)));
     const currency = h.find((e) => e.deal?.price)?.deal.price.currency ?? null;
     rows.push([g.appid, region, currency, JSON.stringify(ev), new Date().toISOString()]);
     events += ev.length;
