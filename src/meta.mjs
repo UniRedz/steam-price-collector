@@ -38,6 +38,7 @@ async function details(appid) {
     publishers_json: JSON.stringify(x.publishers || []),
     fullgame_appid: x.fullgame?.appid ? Number(x.fullgame.appid) : null,
     languages: (x.supported_languages || "").replace(/<[^>]+>/g, "").slice(0, 2000),
+    header_image: typeof x.header_image === "string" && x.header_image.startsWith("https://") ? x.header_image.slice(0, 500) : null,
   };
 }
 
@@ -60,8 +61,12 @@ async function main() {
   let games = await activeGames(query, MISSING ? "AND appid NOT IN (SELECT appid FROM game_meta)" : "");
   if (LIMIT) games = games.slice(0, LIMIT);
   console.log(`Metadati: ${games.length} giochi`);
+  // La colonna header_image arriva con la migrazione 0005, che applica il job dei prezzi. Il lunedi' questo job parte in
+  // parallelo e puo' precederla: senza la colonna si salta solo la copertina, e la scrive la run successiva.
+  const [sample] = await query("SELECT * FROM game_meta LIMIT 1");
+  const withHeader = !sample || "header_image" in sample;
   const metaCols = ["appid", "name", "type", "is_free", "coming_soon", "release_date", "early_access", "categories_json",
-    "genres_json", "developers_json", "publishers_json", "fullgame_appid", "languages", "updated_at"];
+    "genres_json", "developers_json", "publishers_json", "fullgame_appid", "languages", ...(withHeader ? ["header_image"] : []), "updated_at"];
   const newsCols = ["appid", "last_post_at", "last_patch_at", "posts_seen", "updated_at"];
   let metaRows = [], newsRows = [], i = 0;
   const gone = []; // giochi senza pagina sullo store

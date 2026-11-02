@@ -3,15 +3,19 @@ import { sleep } from "./d1.mjs";
 
 export const UA = { "User-Agent": "steam-price-collector/1.0 (+https://github.com/UniRedz/steam-price-collector)" };
 
-// Ritmo separato per host: store.steampowered.com ha limiti piu' stretti di api.steampowered.com
+// Ritmo separato per host: store.steampowered.com ha limiti piu' stretti di api.steampowered.com.
+// "reviews": GetAppReviews sta su api.steampowered.com ma, senza la chiave del publisher, ha un limite condiviso piu'
+// basso (HTTP 429): va al ritmo dello store, senza rallentare le altre chiamate a quell'host.
 const DELAY = {
   "store.steampowered.com": Number(process.env.STEAM_DELAY_MS || 1600),
   "api.steampowered.com": Number(process.env.STEAM_API_DELAY_MS || 120),
+  reviews: Number(process.env.STEAM_REVIEWS_DELAY_MS || 1600),
 };
 const lastCall = {};
 
-export async function steamJson(url, { retries = 5 } = {}) {
-  const host = new URL(url).host;
+// pace: nome del ritmo da usare al posto di quello dell'host (vedi DELAY)
+export async function steamJson(url, { retries = 5, pace } = {}) {
+  const host = pace ?? new URL(url).host;
   for (let attempt = 1; attempt <= retries; attempt++) {
     const wait = (lastCall[host] || 0) + (DELAY[host] ?? 1000) - Date.now();
     if (wait > 0) await sleep(wait);

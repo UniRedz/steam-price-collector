@@ -9,10 +9,22 @@ const WEEKLY = process.argv.includes("--weekly");
 const LIMIT = Number(process.env.LIMIT || 0);
 const NEG_BELOW = 0.75;
 const STORE = "https://store.steampowered.com";
+// Recensioni dall'API pubblica di Steam. Il vecchio store.steampowered.com/appreviews e' deprecato (al suo posto
+// IUserReviewsService/GetAppReviews, stessi filtri e stessi campi) e dal 23 ottobre 2026 rimanda alla home dello store.
+const REVIEWS_API = "https://api.steampowered.com/IUserReviewsService/GetAppReviews/v1/";
+const PURCHASE_ALL = 1, NEGATIVE = 2, BY_HELPFUL = 0, BY_RECENT = 1; // enum dell'API
+const appReviews = (input) => steamJson(`${REVIEWS_API}?input_json=${encodeURIComponent(JSON.stringify(input))}`, { pace: "reviews" });
+// Le prime chiamate falliscono tutte: Steam ha cambiato qualcosa. Meglio fermarsi con un errore che girare a vuoto fino al
+// limite di tempo del job (dal 23 ottobre 2026 ogni run veniva annullata cosi', senza scrivere una riga). Con i tentativi
+// e le attese di steamJson, dieci giochi falliti costano al massimo una mezz'ora.
+const FAIL_FAST_AFTER = 10;
 
-async function summary(appid, extra = "") {
-  const d = await steamJson(`${STORE}/appreviews/${appid}?json=1&language=all&purchase_type=all&num_per_page=0${extra}`);
-  return d?.success === 1 ? d.query_summary : null;
+// Totali di tutte le lingue e di tutti gli acquisti. withOffTopic: conta anche le recensioni fuori tema (review bomb)
+// che Steam esclude dal punteggio. Una recensione per pagina: i totali arrivano con la prima.
+async function summary(appid, withOffTopic = false) {
+  const input = { appid, languages: ["all"], purchase_type: PURCHASE_ALL, num_per_page: 1 };
+  if (withOffTopic) input.filter_offtopic_activity = false;
+  return (await appReviews(input))?.response?.query_summary ?? null;
 }
 
 // Istogramma: ultimi 30 giorni giorno per giorno + periodi fuori tema (review bomb) esclusi da Steam
@@ -27,12 +39,12 @@ async function histogram(appid) {
 }
 
 async function negatives(appid) {
-  const base = `${STORE}/appreviews/${appid}?json=1&language=english&review_type=negative&purchase_type=all`;
-  const recent = await steamJson(`${base}&num_per_page=100&filter=recent`);
-  const texts = (recent?.reviews || []).map((r) => r.review || "");
+  const base = { appid, languages: ["english"], review_type: NEGATIVE, purchase_type: PURCHASE_ALL };
+  const recent = await appReviews({ ...base, filter: BY_RECENT, num_per_page: 100 });
+  const texts = (recent?.response?.reviews || []).map((r) => r.review || "");
   if (texts.length < 20) return null; // campione troppo piccolo per dire qualcosa
-  const helpful = await steamJson(`${base}&num_per_page=5&filter=all&day_range=180`);
-  const top = (helpful?.reviews || []).sort((a, b) => b.votes_up - a.votes_up)[0];
+  const helpful = await appReviews({ ...base, filter: BY_HELPFUL, num_per_page: 5, day_range: 180 });
+  const top = (helpful?.response?.reviews || []).sort((a, b) => b.votes_up - a.votes_up)[0];
   return {
     sample: texts.length,
     categories: classify(texts),
@@ -66,9 +78,12 @@ async function main() {
     }
   };
 
+  let answered = 0; // risposte valide di Steam, anche "nessuna recensione"
   for (const { appid } of games) {
     i++;
     const s = await summary(appid);
+    if (s) answered++;
+    else if (!answered && i >= FAIL_FAST_AFTER) throw new Error(`Nessuna risposta da GetAppReviews per i primi ${i} giochi: endpoint o parametri cambiati?`);
     if (!s || !s.total_reviews) continue;
     const now = new Date().toISOString();
     const h = await histogram(appid);
@@ -77,7 +92,7 @@ async function main() {
       recent_json: JSON.stringify(h.recent), offtopic_events_json: JSON.stringify(h.offtopic), updated_at: now, total_incl_offtopic: null,
     };
     if (WEEKLY) {
-      const all = await summary(appid, "&filter_offtopic_activity=0");
+      const all = await summary(appid, true);
       row.total_incl_offtopic = all?.total_reviews ?? null;
       if (row.total_incl_offtopic - row.total >= 50) flagged++;
       if (s.total_positive / s.total_reviews < NEG_BELOW) {
