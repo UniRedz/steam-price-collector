@@ -72,6 +72,11 @@ jobs:
         id: day
         run: |
           if [ "${{ github.event_name }}" = "schedule" ] && [ "$(date -u +%u)" != "1" ]; then echo "run=0" >> "$GITHUB_OUTPUT"; else echo "run=1" >> "$GITHUB_OUTPUT"; fi
+      # Lanciato a mano da solo: le migrazioni nuove si applicano qui (meta.mjs puo' scrivere colonne nuove). Con la run
+      # programmata o con job=all le applica gia' il job prices, che parte insieme: applicarle anche qui le farebbe due volte
+      # nello stesso momento.
+      - if: steps.day.outputs.run == '1' && github.event_name == 'workflow_dispatch' && inputs.job == 'weekly'
+        run: node src/migrate.mjs
       - if: steps.day.outputs.run == '1'
         run: node src/meta.mjs
       - if: steps.day.outputs.run == '1'
