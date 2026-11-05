@@ -32,7 +32,7 @@ Run manuali: `APPIDS=1,2,3` limita qualsiasi job a giochi specifici.
 | `external_low` | Minimo storico Steam da ITAD, solo per regioni verificate |
 | `region_trust` | Esito della verifica ITAD per regione |
 | `game_meta` | Tipo, uscita, early access, categorie, sviluppatori, lingue, copertina indicata da Steam (`header_image`: per i giochi recenti il percorso contiene un codice) |
-| `review_stats` | Recensioni: totali, ultimi 30 giorni, periodi fuori tema |
+| `review_stats` | Recensioni: totali, ultimi 30 giorni, periodi fuori tema, giorno della prima recensione (`first_review_at`: da quando il gioco è giocabile, anche in early access) |
 | `review_negatives` | Motivi delle negative e negativa più votata (giochi sotto il 75%) |
 | `player_daily` | Picco giornaliero di giocatori online |
 | `dev_news` | Ultimo annuncio e ultima patch degli sviluppatori |

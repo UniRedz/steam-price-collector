@@ -27,7 +27,8 @@ async function summary(appid, withOffTopic = false) {
   return (await appReviews(input))?.response?.query_summary ?? null;
 }
 
-// Istogramma: ultimi 30 giorni giorno per giorno + periodi fuori tema (review bomb) esclusi da Steam
+// Istogramma: ultimi 30 giorni giorno per giorno + periodi fuori tema (review bomb) esclusi da Steam + giorno della prima
+// recensione (start_date)
 async function histogram(appid) {
   const d = await steamJson(`${STORE}/appreviewhistogram/${appid}?l=english&review_score_preference=0`);
   const rec = d?.results?.recent;
@@ -35,6 +36,7 @@ async function histogram(appid) {
   return {
     recent: Array.isArray(rec) ? rec.map((x) => [iso(x.date).slice(0, 10), x.recommendations_up, x.recommendations_down]) : [],
     offtopic: (d?.past_events || []).filter((e) => e.type === 0).map((e) => [iso(e.start_date), iso(e.end_date)]),
+    first: Number.isFinite(d?.results?.start_date) ? iso(d.results.start_date).slice(0, 10) : null,
   };
 }
 
@@ -59,11 +61,14 @@ async function main() {
   if (LIMIT) games = games.slice(0, LIMIT);
   console.log(`Recensioni ${WEEKLY ? "(settimanale)" : "(giornaliero)"}: ${games.length} giochi`);
 
+  // La colonna first_review_at arriva dalla migrazione 0006 (la applica il job prices, che gira in parallelo): finche' non
+  // c'e' non la si scrive, cosi' l'ordine dei job non conta
+  const hasFirst = (await query("SELECT name FROM pragma_table_info('review_stats')")).some((c) => c.name === "first_review_at");
   const stats = [], negRows = [];
   let ok = 0, flagged = 0, i = 0;
   const flush = async () => {
     if (stats.length) {
-      const cols = ["appid", "total", "positive", "score_desc", "recent_json", "offtopic_events_json", "updated_at"];
+      const cols = ["appid", "total", "positive", "score_desc", "recent_json", "offtopic_events_json", "updated_at", ...(hasFirst ? ["first_review_at"] : [])];
       const rows = stats.map((s) => cols.map((c) => s[c]));
       await upsertMany("review_stats", cols, rows, ["appid"],
         cols.slice(1).map((c) => `${c} = excluded.${c}`).join(", "));
@@ -90,6 +95,7 @@ async function main() {
     const row = {
       appid, total: s.total_reviews, positive: s.total_positive, score_desc: s.review_score_desc,
       recent_json: JSON.stringify(h.recent), offtopic_events_json: JSON.stringify(h.offtopic), updated_at: now, total_incl_offtopic: null,
+      first_review_at: h.first,
     };
     if (WEEKLY) {
       const all = await summary(appid, true);
